@@ -16,7 +16,7 @@ require 5.004;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.1.2';
+$VERSION = '0.1.3';
 
 ######################################################################
 
@@ -48,45 +48,26 @@ use Cache::SharedMemoryCache;
 
 =head1 SYNOPSIS
 
-use XML::ParseDTD;
-
-$dtd = XML::ParseDTD->new($dtd);
-
-$bool = $dtd->child_allowed($tag, $childtag);
-
-$bool = $dtd->child_list_allowed($tag, @childtags);
-
-$bool = $dtd->attr_allowed($tag, $attribute);
-
-$bool = $dtd->attr_list_allowed($tag, @attributes);
-
-$bool = $dtd->is_empty($tag);
-
-$bool = $dtd->is_defined($tag);
-
-$bool = $dtd->is_fixed($tag, $attribute);
-
-$bool = $dtd->attr_value_allowed($tag, $attribute, $value);
-
-$bool = $dtd->attr_list_value_allowed($tag, \%attribute_value);
-
-@tags = $dtd->get_document_tags();
-
-$regexp = $dtd->get_child_regexp($tag);
-
-@attributes = $dtd->get_attributes($tag);
-
-@req_attributes = $dtd->get_req_attributes($tag);
-
-$value = $dtd->get_allowed_attr_values($tag, $attribute);
-
-$default_value = $dtd->get_attr_def_value($tag, $attribute);
-
-$dtd->clear_cache();
-
-$errormessage = $dtd->errstr;
-
-$errornumber = $dtd->err;
+    use XML::ParseDTD;
+    $dtd = XML::ParseDTD->new($dtd);
+    $bool = $dtd->child_allowed($tag, $childtag);
+    $bool = $dtd->child_list_allowed($tag, @childtags);
+    $bool = $dtd->attr_allowed($tag, $attribute);
+    $bool = $dtd->attr_list_allowed($tag, @attributes);
+    $bool = $dtd->is_empty($tag);
+    $bool = $dtd->is_defined($tag);
+    $bool = $dtd->is_fixed($tag, $attribute);
+    $bool = $dtd->attr_value_allowed($tag, $attribute, $value);
+    $bool = $dtd->attr_list_value_allowed($tag, \%attribute_value);
+    @tags = $dtd->get_document_tags();
+    $regexp = $dtd->get_child_regexp($tag);
+    @attributes = $dtd->get_attributes($tag);
+    @req_attributes = $dtd->get_req_attributes($tag);
+    $value = $dtd->get_allowed_attr_values($tag, $attribute);
+    $default_value = $dtd->get_attr_def_value($tag, $attribute);
+    $dtd->clear_cache();
+    $errormessage = $dtd->errstr;
+    $errornumber = $dtd->err;
 
 =head1 DESCRIPTION
 
@@ -163,7 +144,7 @@ behaviour. The options known are:
 B<checklm> - configures how often the I<Last-Modified> header should
 be checked if the http protocol is used. The Default is I<3> that
 means that averaged it is checked every third time (dtd is refetched
-and reparsed if it was modified meanwhile). Setting it to 1 or 0 will
+and reparsed if it was modified meanwhile). Setting it to 1 will
 force the module to always check the I<Last-Modified> header, setting
 it to -1 will force it to never check the header (which is recommend
 if performance is important and its more or less sure that the dtd
@@ -186,11 +167,11 @@ modified.
 B<cache_expire> - The value of this option is passed to Cache::Cache
 for setting the time when the cache will be expired and thus has to be
 rewritten. By default this is I<never>. For possible values please
-read the documentation of Cache::Cache. Sadly for my version of
-Cache::Cache (1.02) this seems to have no effect (at least not for
-Cache::SharedMemoryCache).
+read the documentation of Cache::Cache.
 
 =back
+
+B<Note>: You shouldn't set any option to I<0> since it will not be interpreted, that means the default setting will be used instead.
 
 =cut
 
@@ -210,8 +191,8 @@ sub new {
   $cache->purge();
   my $self = $cache->get($memkey);
   if(!defined($self) || !_validate($dtd,$self,$conf{checklm}||$checklm,$conf{timeout}||$timeout)) {
-    $self = _load($dtd);
-    $cache->set($memkey,$self,$conf{timeout}||$timeout,$conf{cache_expire}||$cache_expire);
+    $self = _load($dtd,$conf{timeout}||$timeout);
+    $cache->set($memkey,$self,$conf{cache_expire}||$cache_expire);
   }
   $self = bless($self, ref($class) || $class);
   $self->{cache} = $cache;
@@ -764,7 +745,7 @@ sub _load {
 sub _validate {
   my ($dtd,$rec,$checklm,$timeout) = @_;
   my $lmod;
-  if($dtd =~ m/^(?!file)([A-za-z]+):\/\//i) {
+  if($dtd =~ m/^([A-za-z]+):\/\//i) {
     $lmod = ($checklm < 0 || int(rand($checklm))) ? $rec->{lmod} : LWP::UserAgent->new(timeout => $timeout)->head($dtd)->last_modified;
   }
   else {

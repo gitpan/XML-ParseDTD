@@ -2,10 +2,10 @@
 
 use strict;
 use Test::Simple tests => 2;
-use HTML::FormEngine;
+use XML::ParseDTD;
 
-my $form = HTML::FormEngine->new;         # create an object
-ok( defined $form, 'new() returned something' );                # check that we got something
-ok( $form->isa('HTML::FormEngine'), 'it\'s the right class' );     # and it's the right class
+my $dtd = new XML::ParseDTD('http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd');         # create an object
+ok( defined $dtd, 'new() returned something' );                # check that we got something
+ok( $dtd->isa('XML::ParseDTD'), 'it\'s the right class' );     # and it's the right class
 
 
