@@ -1,5 +1,5 @@
-XML::ParseDTD version 0.1.2
-==========================
+XML::ParseDTD version 0.1.4
+===========================
 
 This module basically tells you which tags are known by the dtd, which
 child tags a certain tag might have, which tags are defined as a empty
@@ -34,7 +34,7 @@ DEPENDENCIES
 
 COPYRIGHT AND LICENSE
 
-(c) 2003 Moritz Sinn
+(c) 2003-2004 Moritz Sinn
 
 This module is free software.  You can redistribute it and/or modify it 
 under the terms of the GNU GENERAL PUBLIC LICENSE (see COPYING).

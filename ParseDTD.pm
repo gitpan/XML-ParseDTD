@@ -16,7 +16,7 @@ require 5.004;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.1.3';
+$VERSION = '0.1.4';
 
 ######################################################################
 
@@ -216,7 +216,7 @@ Returns 1 (true) or 0 (false).
 sub child_allowed {
   my($self,$tag,$child) = @_;
   $self->_set_errstr(1,$tag) and return 0 unless($self->{'Element'}->{$tag});
-  return 1 if (eval("'" . $self->{'Element'}->{$tag} . "'" . "=~ m/($child,)/"));
+  return 1 if (eval("'" . $self->{'Element'}->{$tag} . "'" . "=~ m/\($child,\)/"));
   $self->_set_errstr(4,$child,$tag);
   return 0;
 }
@@ -314,6 +314,25 @@ sub is_empty {
   my($self,$tag) = @_;
   return 1 if($self->{'Empty'}->{$tag});
   $self->_set_errstr(8, $tag);
+  return 0;
+}
+
+######################################################################
+
+=head3 is_any ($tag)
+
+Checks whether the given tag has content model I<ANY>.
+
+Returns 1 (true) or 0 (false).
+
+=cut
+
+######################################################################
+
+sub is_any {
+  my($self,$tag) = @_;
+  return 1 if($self->{'Any'}->{$tag});
+  $self->_set_errstr(11, $tag);
   return 0;
 }
 
@@ -628,6 +647,7 @@ sub _get_errstr {
         || /^8$/  && sprintf('"%s" is not a empty tag', @_)
         || /^9$/  && sprintf('Attribute "%s" for "%s" is not fixed', @_)
         || /^10$/ && sprintf('No default value defined for attribute "%s" of "%s"', @_)
+	|| /^11$/ && sprintf('Content model of tag "%s" is NOT "ANY"', @_)
 	|| '';
   }
   return $msg;
@@ -640,6 +660,7 @@ sub _load {
   my %pdtd = (
 	      'Element' => {},
 	      'Empty' => {},
+	      'Any' => {},
 	      'Attr' => {},
 	      'ReqAtt' => {},
 	      'FixAtt' => {},
@@ -679,7 +700,7 @@ sub _load {
   #$DTD =~ s/%(\S+);/$IntEntity{$1}/gs;
   while($DTD =~ s/%(\S+);/$IntEntity{$1}/s) {}
 
-  while($DTD =~ s/<!ELEMENT\s*(\S+)\s*(?:(\([^<>]*\)(\*|\+)?)|(EMPTY))\s*>//s) {
+  while($DTD =~ s/<!ELEMENT\s*(\S+)\s*(?:(\([^<>]*\)(\*|\+)?)|(EMPTY)|(ANY))\s*>//s) {
     if(!$4) {
       $_ = $1;
       $pdtd{'Element'}->{$_} = $2;
@@ -689,8 +710,14 @@ sub _load {
       $pdtd{'Element'}->{$_} =~ s/([^a-zA-Z0-9#]{1}),/$1/gs;
     }
     else {
-      $pdtd{'Element'}->{$1} = 1;
-      $pdtd{'Empty'}->{$1} = 1;
+      if($4 eq 'EMPTY') {
+	$pdtd{'Element'}->{$1} = 1;
+	$pdtd{'Empty'}->{$1} = 1;
+      }
+      elsif($4 eq 'ANY') {
+	$pdtd{'Element'}->{$1} = '.*';
+	$pdtd{'Any'}->{$1} = 1;
+      }
     }
   }
   
@@ -700,7 +727,7 @@ sub _load {
     $pdtd{'Attr'}->{$elem} = {};
     $_ = $2;
     my ($attr,$type,$some,$default);
-    while(s/\s*(\S+)\s*((?:\([^\(\)]+\))|(?:[^\(\) \n]+))\s*(\S+)?\s*((?:"|')\S+(?:'|"))?\s*//s) {
+    while(s/\s*(\S+)\s*((?:\([^\(\)]+\))|(?:[^\(\) \t\n]+))\s*(\S+)?\s*((?:"|')\S+(?:'|"))?\s*//s) {
       ($attr,$type,$some,$default) = ($1,$2,$3,$4);
       for($type) {
 	#/^ID(REF)?$/ && do { $pdtd{'Attr'}->{$elem}->{$attr} = \&XML::ParseDTD::_check_id; last; };
