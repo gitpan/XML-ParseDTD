@@ -6,6 +6,6 @@ WriteMakefile(
 	VERSION_FROM => 'ParseDTD.pm', # finds $VERSION
 	PREREQ_PM => {
 		'LWP::UserAgent' => 2.003,
-		'IPC::SharedCache' => 1.3,
+		'Cache::Cache' => 1.02,
 	},
 );

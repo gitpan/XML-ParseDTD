@@ -16,7 +16,7 @@ require 5.004;
 
 use strict;
 use vars qw($VERSION);
-$VERSION = '0.1';
+$VERSION = '0.1.2';
 
 ######################################################################
 
@@ -33,7 +33,7 @@ $VERSION = '0.1';
 =head2 Nonstandard Modules
 
         LWP::UserAgent 0.01
-        IPC::SharedCache 1.3
+        Cache::Cache 1.02
 
 =cut
 
@@ -42,7 +42,7 @@ $VERSION = '0.1';
 use Switch;
 use Carp;
 use LWP::UserAgent;
-use IPC::SharedCache;
+use Cache::SharedMemoryCache;
 
 ######################################################################
 
@@ -98,17 +98,19 @@ child tags a certain tag might have, which tags are defined as a empty
 tag, which attributes a certain tag might have, which values are
 allowed for a certain attribute, which attributes are required, which
 attributes are fixed, which attributes have which default value
-... well i would say it tells you all except the entity definitions (they're on the ToDo list) that is defined in the dtd (at
-least all that i know of, but i'm not so much into that topic, so
-please make me aware if i missed something). All this information can
-be accessed in 2 diffrent ways: 1. you can simply get it 2. you can
-pass certain data and the module then tells you whether thats ok or
-not.
+... well i would say it tells you all except the entity definitions
+(they're on the ToDo list) that is defined in the dtd (at least all
+that i know of, but i'm not so much into that topic, so please make me
+aware if i missed something). All this information can be accessed in
+2 diffrent ways: 1. you can simply get it 2. you can pass certain data
+and the module then tells you whether thats ok or not.
 
-This package uses IPC::SharedCache to cache every parsed DTD, so 
-next time the data structure representing the dtd can be just taken out of
-memory. Thus the dtd is not refetched and not parsed again which saves
-quite some time and work.
+This package uses Cache::SharedMemoryCache to cache every parsed DTD,
+so  next time the data structure representing the dtd can be just
+taken out of memory. Thus the dtd is not refetched and not parsed
+again which saves quite some time and work. You can easily modify the
+module so that is uses Cache::FileCache if you prefer, but i think
+SharedMemory is faster.
 
 Everytime the constructor is called it first checks whether the given
 dtd is already in memory, if so it compares the I<last modified> date
@@ -152,7 +154,7 @@ file://home/moritz/xhtml1-strict.dtd
 =back
 
 The configuration hash can be used to influence the modules
-behaviour. So far only one configuration option is known:
+behaviour. The options known are:
 
 =over
 
@@ -167,22 +169,52 @@ it to -1 will force it to never check the header (which is recommend
 if performance is important and its more or less sure that the dtd
 will not be changed).
 
+B<memkey> - Identifier for the datastructure which is saved to and
+taken from the cache. Because this module uses the shared memory for
+caching, it is important that is identifier is really unique, else it
+would probably overwrite some data of another program. By default the
+Identifier is I<XML::ParseDTD>. I</URL of the parsed dtd> is allways
+added to the value of this option to distinguish the dtds.
+
+B<timeout> - The value of this option is simply passed to
+LWP::UserAgent as timeout value. Please see the documentation of
+LWP::UserAgent for more information. The default is
+I<30>. LWP::UserAgent is used to fetch dtds with the http protocol and
+to get their I<last modified> header to know whether they have been
+modified.
+
+B<cache_expire> - The value of this option is passed to Cache::Cache
+for setting the time when the cache will be expired and thus has to be
+rewritten. By default this is I<never>. For possible values please
+read the documentation of Cache::Cache. Sadly for my version of
+Cache::Cache (1.02) this seems to have no effect (at least not for
+Cache::SharedMemoryCache).
+
 =back
 
 =cut
 
 ######################################################################
 
-my $checklm = 3;
-my $ipc_key = 'XML::ParseDTD';
-
 sub new {
+  my $checklm = 3;
+  my $memkey = 'XML::ParseDTD';
+  my $timeout = 30;
+  my $cache_expire = 'never';
   my ($class, $dtd, %conf) = @_;
-  $checklm = $conf{checklm} if(defined($conf{checklm}));
-  my %cache;
-  tie %cache, 'IPC::SharedCache', ipc_key => $ipc_key, load_callback => \&_load, validate_callback => \&_validate;
-  $_ = $cache{$dtd};
-  my $self = bless($_, ref($class) || $class);
+  #file:// or without protocol is the same (local filesystem)
+  $dtd =~ s/^file:\/\///;
+  my $cache = new Cache::SharedMemoryCache;
+  #attach dtd path to key
+  $memkey = ($conf{memkey}||$memkey).'/'.$dtd;
+  $cache->purge();
+  my $self = $cache->get($memkey);
+  if(!defined($self) || !_validate($dtd,$self,$conf{checklm}||$checklm,$conf{timeout}||$timeout)) {
+    $self = _load($dtd);
+    $cache->set($memkey,$self,$conf{timeout}||$timeout,$conf{cache_expire}||$cache_expire);
+  }
+  $self = bless($self, ref($class) || $class);
+  $self->{cache} = $cache;
   return $self;
 }
 
@@ -548,15 +580,16 @@ sub get_attr_def_value {
 
 =head3 clear_cache ()
 
-Clears the cache, that means that all dtds will be refetched and
-reparsed.
+Clears the cache, that means that the dtd will be refetched and
+reparsed next time.
 
 =cut
 
 ######################################################################
 
 sub clear_cache {
-  IPC::SharedCache::remove $ipc_key;
+  my $self = shift;
+  $self->{cache}->clear();
 }
 
 ######################################################################
@@ -619,34 +652,10 @@ sub _get_errstr {
   return $msg;
 }
 
-#sub _check_id {
-#  $_ = shift;
-#  return 0 if(m/^[A-Za-z_]{1}[A-Za-z0-9_:.-]*$/ && ! m/^(xml|XML)/);
-#  return 'must be of type ID which means it must match ^[A-Za-z]{1}[A-Za-z0-9_:.-]*$ and mustn\'t begin with xml or XML';
-#}
-
-#sub _check_idrefs {
-#  $_ = shift;
-#  return 0 if(m/^[A-Za-z_]{1}[A-Za-z0-9_:. -]*$/ && ! m/(^| )(xml|XML)/);
-#  return 'must be of type IDREFS which means it must match ^[A-Za-z]{1}[A-Za-z0-9_:. -]*$ and mustn\'t begin with xml or XML';
-#}
-
-#sub _check_cdata {
-#  return 0 ;
-#}
-
-#sub _pcdata {
-#  return 0 ;
-#}
-
-#sub _check_nmtoken {
-#  return 0 if(shift =~ m/^[A-Za-z0-9_:.-]{1}\S*$/);
-#  return 'must be of type NMTOKEN which means it must match ^[A-Za-z0-9_:.-]{1}\S*$';
-#}
 
 #this method fetches and parses the dtd
 sub _load {
-  my $dtd = shift;
+  my ($dtd,$timeout) = @_;
   my %pdtd = (
 	      'Element' => {},
 	      'Empty' => {},
@@ -657,14 +666,13 @@ sub _load {
 	     );
   my $DTD;
   if($dtd =~ m/^(?!file)([A-za-z]+):\/\//i) {
-    my $ua = LWP::UserAgent->new(timeout => 30);
+    my $ua = LWP::UserAgent->new(timeout => $timeout);
     local $_;
     $_ = $ua->get($dtd);
     $DTD = $_->content;
     $pdtd{lmod} = $_->last_modified;
   }
   else {
-    $dtd =~ s/^file:\/\///;
     open DTD, "<$dtd" or die "Cannot open file $dtd : $!\n";
     {
       local $/;
@@ -754,10 +762,10 @@ sub _load {
 
 #this method proves whether the dtd is already cached and if so if it should be refetched (and reparsed)
 sub _validate {
-  my ($dtd,$rec) = @_;
+  my ($dtd,$rec,$checklm,$timeout) = @_;
   my $lmod;
   if($dtd =~ m/^(?!file)([A-za-z]+):\/\//i) {
-    $lmod = ($checklm < 0 || int(rand($checklm))) ? $rec->{lmod} : LWP::UserAgent->new(timeout => 1)->head($dtd)->last_modified;
+    $lmod = ($checklm < 0 || int(rand($checklm))) ? $rec->{lmod} : LWP::UserAgent->new(timeout => $timeout)->head($dtd)->last_modified;
   }
   else {
     $lmod = (stat($dtd))[9];
@@ -771,7 +779,9 @@ __END__
 
 =head1 BUGS
 
-Send bug reports to: moritz@freesources.org
+Send bug reports to: bug-XML-ParseDTD@rt.cpan.org (if that doesn't
+work feel free to send directly to moritz@freesources.org). Or use the
+webinterface at http://rt.cpan.org/NoAuth/Bugs.html?Dist=XML-ParseDTD.
 
 Thanks!
 
